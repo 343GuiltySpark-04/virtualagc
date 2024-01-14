@@ -12,5 +12,7 @@
 #		2012-09-16 JL	Updated to match tools dir changes.
 #		2016-10-04 JL	Change to use Makefile.inc.
 
-BASENAME=Comanche055
+BASENAME=Comanche055QOL
+EXTRA_YAYUL_ARGS=--parity
+NO_BINSOURCE=yes
 include ../Makefile.inc

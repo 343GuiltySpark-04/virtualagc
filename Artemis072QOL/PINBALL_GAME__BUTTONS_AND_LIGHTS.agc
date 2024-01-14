@@ -17,15 +17,15 @@
 ## 		2010-02-02 JL	Removed extra instruction (TS DSPCOUNT). Fixed
 ##				page numbers.
 ## 		2010-02-05 JL	Fixed code errors.
-## 		2010-02-07 JL	Added missing BANK opcode on p369. Removed 
+## 		2010-02-07 JL	Added missing BANK opcode on p369. Removed
 ##				extra instruction on p383.
 ##		2010-02-10 JL	Fixed line on p381.
-##		2010-02-13 JL	Fixed errors on pages 327, 354, 356, 362, 363, 
+##		2010-02-13 JL	Fixed errors on pages 327, 354, 356, 362, 363,
 ##				368, 370, 374, 379, 380, 391, 392.
 ##		2010-02-20 RSB	Un-##'d this header.
 ##		2011-05-07 JL	Removed obsolete link.
 ##		2017-01-28 RSB	WTIH -> WITH.
-##		2017-02-08 RSB	Proofed comment text by combination of 
+##		2017-02-08 RSB	Proofed comment text by combination of
 ##				octopus/ProoferComments and diff'ing vs
 ##				Comanche 55.
 ##		2017-03-08 RSB	Changed DSPOCTWO to DSPOCTWD.
@@ -35,9 +35,9 @@
 ##		2017-03-17 RSB	Comment-text fixes identified by 4-way diff'ing
 ##				of Colossus 237 & 249, Comanche 55, and Artemis 72.
 ##				In several places, trailing periods that were missing
-##				or extremely faint in the printout were restored, 
+##				or extremely faint in the printout were restored,
 ##				and marked with a ##-style comment.  This occurred
-##				if a period was present in _all_ other available 
+##				if a period was present in _all_ other available
 ##				Colossus or Luminary version (8 in all) without there
 ##				being any other different obvious in the line.
 
@@ -826,7 +826,7 @@ ENTPASHI	CAF	MMADREF
 		CAF	THREE		# IF DEC, L/ 5 CHAR IN FOR DATA MUST BE
 		MASK	DECBRNCH	# SCALED (DECEND); IF 5 CHAR IN, DATA
 		CCS	A		# HAS ALREADY BEEN SCALED. ANY NUMBER
-		TC	+2		# OF DECIMAL CHARACTERS ARE ACCEPTABLE.SCR 
+		TC	+2		# OF DECIMAL CHARACTERS ARE ACCEPTABLE.SCR
 		TC	ACCEPTWD	# OCTAL. ANY NUMBER OF CHAR OK.
 		CCS	DSPCOUNT
 		TC	LT5
@@ -952,7 +952,7 @@ VERBTAB		CADR	GODSPALM	# VB00 ILLEGAL
 		CADR	CLOAD		# VB23 LOAD COMP 3 (R3)
 		CADR	ABLOAD		# VB24 LOAD COMP 1,2 (R1,R2)
 		CADR	ABCLOAD		# VB25 LOAD COMP 1,2,3 (R1,R2,R3)
-		CADR	GODSPALM	# VB26 SPARE
+		CADR	BCLOAD		# VB26 SPARE
 		CADR	DSPFMEM		# VB27 FIXED MEMORY DISPLAY
 					# THE FOLLOWING VERBS MAKE NO NOUN TEST
 		CADR	GODSPALM	# VB28 SPARE
@@ -1370,7 +1370,7 @@ DEGOUTSF	CAF	ZERO
 		CS	BIT15		# MPAC IS -, MASK OUT SIGN BIT AND ADD
 		MASK	MPAC		# AUGMENTER ACCORDING TO C(MPAC +2)
 		TS	MPAC
-		EXTEND			
+		EXTEND
 		INDEX	MPAC +2
 		DCA	DEGTAB		# LOADS SFTEMP1 AND SFTEMP2 WITH DP AUGMENTER
 		DXCH	SFTEMP1		# CONSTANT
@@ -1765,11 +1765,10 @@ OCT21		=	ND1
 ABLOAD		CS	ONE
 		TC	COMPTEST
 		TC	NOUNTEST	# TEST IF NOUN CAN BE LOADED.
-## Page 355
-		CAF	VBSP1LD
+		CAF	VBSP2LD
 		TC	UPDATVB -1
 		TC	REQDATX
-		CAF	VBSP2LD
+		CAF	VBSP3LD
 		TC	UPDATVB -1
 		TC	REQDATY
 PUTXY		CS	FIVE		# TEST THAT THE 2 DATA WORDS LOADED ARE
@@ -1782,6 +1781,28 @@ PUTXY		CS	FIVE		# TEST THAT THE 2 DATA WORDS LOADED ARE
 		INDEX	NOUNADD
 		TS	0
 		TCF	COMBLOAD	# Y COMP
+#------------------------------------------------------------------------------------------------------
+BCLOAD		CS	ONE
+		TC	COMPTEST
+		TC	NOUNTEST	# TEST IF NOUN CAN BE LOADED.
+		CAF	VBSP1LD
+		TC	UPDATVB -1
+		TC	REQDATY
+		CAF	VBSP2LD
+		TC	UPDATVB -1
+		TC	REQDATZ
+
+PUTYZ		CS	FIVE		# TEST THAT THE 2 DATA WORDS LOADED ARE
+		TC	ALLDC/OC	# ALL DEC OR ALL OCT.
+		EXTEND
+		DCA	LODNNLOC	# SWITCH BANKS TO NOUN TABLE READING
+		DXCH	Z		# ROUTINE.
+		CAF	ZERO		# X COMP
+		TC	PUTCOM
+		INDEX	NOUNADD
+		TS	0
+		TCF	COMBLOAD	# Y COMP
+#----------------------------------------------------------------------------------
 ALOAD		TC	REQDATX
 		EXTEND
 		DCA	LODNNLOC	# SWITCH BANKS TO NOUN TABLE READING
@@ -1911,7 +1932,7 @@ PUTCOM		TS	DECOUNT
 		TC	PUTCOM2		# NO DP
 					# TEST FOR DP SCALE FOR OCT LOAD. IF SO,
 					# +0 INTO MAJOR PART. SET NOUNADD FOR
-## Restored trailing period in the following line. &mdash; RSB 2017.					
+## Restored trailing period in the following line. &mdash; RSB 2017.
 					# LOADING OCTAL WORD INTO MINOR PART.
 PUTDPCOM	INCR	NOUNADD		# DP  (ESUBK)-K+1  OR  E+1
 		CA	NOUNADD		# NOUNADD NOW SET FOR MINOR PART
@@ -3461,7 +3482,7 @@ TSTLTS3		CS	TSTCON3		# CALLED BY EXECUTIVE
 FULLDSP		OCT	05675		# DISPLAY ALL 8:S
 FULLDSP1	OCT	07675		# DISPLAY ALL 8:S AND +
 TSTCON1		OCT	00175
-					# UPLINK ACTIVITY, TEMP, KEY RLSE, 
+					# UPLINK ACTIVITY, TEMP, KEY RLSE,
 					# V/N FLASH, OPERATOR ERROR.
 TSTCON2		OCT	40650		# DSPTAB+11D  BITS 4,6,8,9.
 					# NO ATT, GIMBAL LOCK, TRACKER, PROG ALM.

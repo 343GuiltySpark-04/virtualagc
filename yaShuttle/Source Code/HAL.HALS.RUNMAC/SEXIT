@@ -1,4 +1,11 @@
+<<<<<<< Updated upstream
          MACRO                                                          00000100
 &L       SEXIT                                                          00000200
 &L       B     SEXIT          RETURN WITH MAYBE SWAP                    00000300
          MEND                                                           00000400
+=======
+         MACRO                                                          00000100
+&L       SEXIT                                                          00000200
+&L       B     SEXIT          RETURN WITH MAYBE SWAP                    00000300
+         MEND                                                           00000400
+>>>>>>> Stashed changes

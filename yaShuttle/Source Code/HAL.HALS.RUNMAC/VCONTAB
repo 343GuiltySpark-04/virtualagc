@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
          MACRO                                                          00000100
          VCONTAB                                                        00000200
          GBLC  &VCON1,&VCON2                                            00000300
@@ -5,3 +6,12 @@
          DC    A(&VCON1)                                                00000500
          DC    A(&VCON2)                                                00000600
          MEND                                                           00000700
+=======
+         MACRO                                                          00000100
+         VCONTAB                                                        00000200
+         GBLC  &VCON1,&VCON2                                            00000300
+         ORG   VCONTAB                                                  00000400
+         DC    A(&VCON1)                                                00000500
+         DC    A(&VCON2)                                                00000600
+         MEND                                                           00000700
+>>>>>>> Stashed changes

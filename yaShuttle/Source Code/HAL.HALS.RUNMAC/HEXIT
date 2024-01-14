@@ -1,4 +1,11 @@
+<<<<<<< Updated upstream
          MACRO                                                          00000010
 &L       HEXIT                                                          00000020
 &L       B     4(0,12) .          RETURN                                00000030
          MEND                                                           00000040
+=======
+         MACRO                                                          00000010
+&L       HEXIT                                                          00000020
+&L       B     4(0,12) .          RETURN                                00000030
+         MEND                                                           00000040
+>>>>>>> Stashed changes

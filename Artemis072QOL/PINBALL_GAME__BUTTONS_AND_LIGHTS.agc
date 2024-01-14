@@ -1791,17 +1791,16 @@ BCLOAD		CS	ONE
 		CAF	VBSP2LD
 		TC	UPDATVB -1
 		TC	REQDATZ
-
 PUTYZ		CS	FIVE		# TEST THAT THE 2 DATA WORDS LOADED ARE
 		TC	ALLDC/OC	# ALL DEC OR ALL OCT.
 		EXTEND
 		DCA	LODNNLOC	# SWITCH BANKS TO NOUN TABLE READING
 		DXCH	Z		# ROUTINE.
-		CAF	ZERO		# X COMP
+		CAF	ONE		# X COMP
 		TC	PUTCOM
 		INDEX	NOUNADD
-		TS	0
-		TCF	COMBLOAD	# Y COMP
+		TS	1
+		TCF	COMCLOAD	# Y COMP
 #----------------------------------------------------------------------------------
 ALOAD		TC	REQDATX
 		EXTEND
@@ -1823,7 +1822,13 @@ COMBLOAD	CAF	ONE
 		INDEX	NOUNADD
 		TS	1
 		TC	LOADLV
-
+#------------------------------------
+COMCLOAD	CAF	TWO
+		TC	PUTCOM
+		INDEX	NOUNADD
+		TS	2
+		TC	LOADLV
+#---------------------------------------------------------
 CLOAD		CS	TWO
 		TC	COMPTEST
 		CAF	BIT15		# SET CLPASS FOR PASS0 ONLY

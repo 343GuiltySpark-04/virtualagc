@@ -29,7 +29,7 @@
 
  Filename:	virtualWire.c
  Purpose:	Portable functions (*NIX and Win32) for working with sockets
- for connecting yaLVDC to peripherals by "virtual wires".
+                for connecting yaLVDC to peripherals by "virtual wires".
  Compiler:	GNU gcc.
  Contact:	Ron Burkey <info@sandroid.org>
  Reference:	http://www.ibiblio.org/apollo/LVDC.html
@@ -40,6 +40,19 @@
                                 #ifdef unix (or similar) extended to
                                 apple.)  Thanks to Ludo Visser for the
                                 change.
+                2023-08-08 RSB  Added state.pioChangeFull.
+                2023-08-12 RSB  Eliminated the sleep of 5ms between packets
+                                when not --ptc, since it appears to be a
+                                performance bottleneck.  (Actually, it was
+                                useful in the sense of preventing the
+                                send/recv buffer from increasing endlessly
+                                if running with --multiplier, but I can't see
+                                any way to fine-tune it.)
+                2023-08-16 RSB  Eliminated some pointless PTC-related stuff
+                                from LVDC mode, since it was producing harmless
+                                but irritating warning messages.
+                2023-08-20 RSB  Fixed OM/D bit in PIO 057.
+                2023-08-22 RSB  Fixed PIO 574 least-significant bits.
  */
 
 #include <stdio.h>
@@ -66,9 +79,17 @@
 // for some other program.
 
 #include "yaLVDC.h"
+#define CHUNK_SIZE 6
 
 /*
  * Format for yaLVDC-compatible "virtual wire" packets.
+ *
+ * IMPORTANT NOTE: For some purposes, a client device cannot interpret a
+ * PIO unless it knows the current "mode".  yaLVDC attempts to send the mode
+ * via a PIO 006 as soon as possible after a client connects to yaLVDC,
+ * but there is no guarantee that the PIO 006 is the very first packet received.
+ * Therefore, a client should treat the mode as "unknown" until it receives
+ * a PIO 006/206/406/606 from yaLVDC.
  *
  * The format distinguishes between packets containing "data" and packets
  * containing a "mask".  If the packet carries all 26 bits of data (as
@@ -82,8 +103,7 @@
  * the payload in the following data packet will be valid, and a 0 wherever
  * the data packet will be invalid.
  *
- * Each packet consists
- * of 6 data bytes, formatted as follows:
+ * Each packet consists of CHUNK_SIZE data bytes, formatted as follows:
  *
  *  1st byte:   D7      1
  *              D6      1 if the message is a mask, 0 if it's data.
@@ -95,11 +115,8 @@
  *                                      101     Command or status to panel
  *                                      110     (reserved)
  *                                      111     PING
- *              D2-D0   Unique Source ID.  (000 is the server; i.e., the CPU.)
- *                      The port numbers used are the base port number plus
- *                      the ID.  Thus if the server were port number 19653,
- *                      then ID=1 would be port 19694, ... , ID=7 would be
- *                      port 19660.
+ *              D2-D0   Unique Source ID.  In LVDC, this is not actually used
+ *                      for anything at all.
  *              Note that if all fields are 0xFF, it could be used as
  *              a harmless 1-byte PING message.  I don't know why I'd
  *              want to use that, necessarily, but at least I'm allowing
@@ -198,6 +215,26 @@
  *      Channel 605:    Last PROG REG B configuration received by CPU.
  */
 
+// Add a CHUNK_SIZE-byte chunk to the output packet. First set outPacketSize=0;
+// then call formatPacket() up to MAX_CHUNKS_PER_PACKET times.  Then send()
+// outPacket[].
+#define MAX_CHUNKS_PER_PACKET 32
+static int outPacketSize = 0;
+static uint8_t outPacket[CHUNK_SIZE * MAX_CHUNKS_PER_PACKET];
+void
+formatPacket(int ioType, int channel, int payload, int isMask)
+{
+  int id = 0;
+  outPacket[outPacketSize++] = (isMask ? 0300 : 0200) | ((ioType << 3) & 0070)
+      | (id & 0007);
+  outPacket[outPacketSize++] = channel & 0177;
+  outPacket[outPacketSize++] = ((channel & 0600) >> 2)
+      | ((payload >> 21) & 0037);
+  outPacket[outPacketSize++] = (payload >> 14) & 0177;
+  outPacket[outPacketSize++] = (payload >> 7) & 0177;
+  outPacket[outPacketSize++] = payload & 0177;
+}
+
 int ServerBaseSocket = -1;
 int PortNum = 19653;
 typedef struct
@@ -241,32 +278,13 @@ connectCheck(void)
           printf("\nConnected to peripheral #%d%s on handle %d.\n", j,
               reassigned, i);
           newConnect = 1;
+          formatPacket(0, 006, state.pio[006], 0);
         }
       else if (i == -1 && errno != EAGAIN)
         {
           printf("\nVirtual wire (accept) error: %s\n", strerror(errno));
         }
     }
-}
-
-// Add a 6-byte chunk to the output packet. First set outPacketSize=0; then
-// call formatPacket() up to MAX_CHUNKS_PER_PACKET times.  Then send()
-// outPacket[].
-#define MAX_CHUNKS_PER_PACKET 32
-static int outPacketSize = 0;
-static uint8_t outPacket[6 * MAX_CHUNKS_PER_PACKET];
-void
-formatPacket(int ioType, int channel, int payload, int isMask)
-{
-  int id = 0;
-  outPacket[outPacketSize++] = (isMask ? 0300 : 0200) | ((ioType << 3) & 0070)
-      | (id & 0007);
-  outPacket[outPacketSize++] = channel & 0177;
-  outPacket[outPacketSize++] = ((channel & 0600) >> 2)
-      | ((payload >> 21) & 0037);
-  outPacket[outPacketSize++] = (payload >> 14) & 0177;
-  outPacket[outPacketSize++] = (payload >> 7) & 0177;
-  outPacket[outPacketSize++] = payload & 0177;
 }
 
 // Compute parity of a 6-bit value.  The value returned is suitable for direct
@@ -316,8 +334,13 @@ pendingVirtualWireActivity(void /* int id, int mask */)
   ioType = -1;
   mask = 0377777777;
   outPacketSize = 0;
-  // Format the output packet.
-  if (needStatus || newConnect || panelPause == 2 || panelPause == 4)
+  // Format the output packet(s).  For --ptc (particularly the PTC panel),
+  // there's a lot of stuff automatically sent upon connection or other
+  // circumstances, none of which is needed for LVDC.  It wouldn't be harmful
+  // per se to prepare it anyway, but it sometimes causes attempts to read
+  // from allocated memory, which outputs pointless error messages, so it's
+  // better to eliminate the preparation if not in --ptc.
+  if (ptc && (needStatus || newConnect || panelPause == 2 || panelPause == 4))
     {
       uint16_t instruction = 0;
       int data = -1, hop = -1, hopd = -1, dataReadback = -1, datapat = -1,
@@ -390,9 +413,9 @@ pendingVirtualWireActivity(void /* int id, int mask */)
         formatPacket(5, 0602, datapat, 0);
       if (dataReadback != -1)
         formatPacket(5, 0601, dataReadback, 0);
-      needStatus = 0;
-      newConnect = 0;
     }
+  needStatus = 0;
+  newConnect = 0;
   // Take care of any virtual-wire outputs needed.  The changes (triggered by
   // the last LVDC/PTC instruction executed) have stuck the necessary info in
   // the global "state" structure.  Note that any given instruction can flag
@@ -403,8 +426,16 @@ pendingVirtualWireActivity(void /* int id, int mask */)
   if (state.pioChange != -1)
     {
       ioType = 0;
-      channel = state.pioChange;
-      payload = state.pio[channel];
+      channel = state.pioChangeFull;
+      payload = state.pio[state.pioChange];
+      if (channel == 0574)
+        {
+          // This is the channel used for outputting DCS data-status messages.
+          // I have deduced that the hardware must fill the least-significant
+          // bits with 1, because the documentation says the words have those
+          // bits filled but the LVDC FP software doesn't bother doing that.
+          payload |= 07777;
+        }
       state.pioChange = -1;
     }
   else if (state.cioChange != -1)
@@ -426,7 +457,8 @@ pendingVirtualWireActivity(void /* int id, int mask */)
         {
           state.bbPrinter = 1;
           state.busyCountPrinter = PERIPHERAL_BUSY_CYCLES;
-          state.cio[0154] = (payload & 0374000000) | (0002100000 >> 1) | oddParity6((payload >> 20) & 077);
+          state.cio[0154] = (payload & 0374000000) | (0002100000 >> 1)
+                              | oddParity6((payload >> 20) & 077);
           state.lastWasPrinter = 1;
         }
       else if (channel == 0164)
@@ -443,7 +475,8 @@ pendingVirtualWireActivity(void /* int id, int mask */)
           state.cio[0264] = 0;
           state.lastWasPrinter = 1;
         }
-      else if (channel == 0120 || channel == 0124 || channel == 0130 || channel == 0134)
+      else if (channel == 0120 || channel == 0124 || channel == 0130
+              || channel == 0134)
         {
           state.bbTypewriter = 4;
           state.lastWasPrinter = 0;
@@ -589,7 +622,7 @@ pendingVirtualWireActivity(void /* int id, int mask */)
   // The following is just a little trick:  a delay to allow the UI
   // some time to take care of its business after receiving the data.
   // Undoubtedly there are better ways of handling this.
-  if (outPacketSize)
+  if (ptc && outPacketSize)
     {
       void
       sleepMilliseconds(unsigned Milliseconds);
@@ -684,7 +717,7 @@ pendingVirtualWireActivity(void /* int id, int mask */)
                   }
                 else
                   {
-                    int mask = 0377777777;
+                    int mask = 0377777777, oldValue, newValue;
                     if (pendingMasks[i].valid)
                       {
                         if (pendingMasks[i].source != source)
@@ -702,11 +735,43 @@ pendingVirtualWireActivity(void /* int id, int mask */)
                     case 0: // PIO
                       if (channel < 0 || channel > 0777)
                         printf("Input PIO channel out of range.\n");
+                      oldValue = state.pio[channel];
+                      newValue = (oldValue & ~mask) | (value & mask);
+                      state.pio[channel] = newValue;
                       printf(
-                          "PIO-%03o changed from %09o to %09o with mask %09o.\n",
-                          channel, state.pio[channel], value, mask);
-                      state.pio[channel] = (state.pio[channel] & ~mask)
-                          | (value & mask);
+                          "PIO-%03o changed from %09o to %09o (value %09o, mask %09o).\n",
+                          channel, oldValue, state.pio[channel], value, mask);
+                      if (channel == 043)
+                        {
+                          int channel2, mask2;
+                          channel2 = 057;
+                          mask2 = 000000010;
+                          oldValue = state.pio[channel2];
+                          state.pio[channel2] = (oldValue & ~mask2) |
+                                                (newValue & mask2);
+                          printf(
+                              "PIO-%03o changed from %09o to %09o (bit %09o).\n",
+                              channel2, oldValue, state.pio[channel2], mask2);
+                          channel2 = 0137;
+                          mask2 = 010000000;
+                          oldValue = state.pio[channel2];
+                          state.pio[channel2] = (oldValue & ~mask2) | mask2;
+                          printf(
+                              "PIO-%03o changed from %09o to %09o (bit %09o).\n",
+                              channel2, oldValue, state.pio[channel2], mask2);
+                          /*
+                          // The following is temporary.  It's an override that
+                          // undoes the inhibiting of DCS interrupts.
+                          // ... And it fails dramatically, in unexpected ways!
+                          channel2 = 072;
+                          mask2 = 004000000;
+                          oldValue = state.pio[channel2];
+                          state.pio[channel2] = (oldValue & ~mask2);
+                          printf(
+                              "PIO-%03o changed from %09o to %09o (bit %09o).\n",
+                              channel2, oldValue, state.pio[channel2], mask2);
+                          */
+                        }
                       break;
                     case 1: // CIO
                       if (channel < 0 || channel > 0777)
@@ -849,7 +914,7 @@ pendingVirtualWireActivity(void /* int id, int mask */)
                 break;
                 }
             }
-          // Everything from the input buffer than cat be processed has
+          // Everything from the input buffer that can be processed has
           // been.  So removed that stuff from the buffer, leaving everything
           // not yet processed.
           if (offsetIntoBuffer > 0)

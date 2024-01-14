@@ -1,4 +1,9 @@
-C/ From PDF p. 169 in "Programming in HAL/S".
+C/ From PDF p. 269 in "Programming in HAL/S". Make sure this is compiled
+C/ with the command-line switch --templib, because it needs to be 
+C/ available in the template library for some of the other sample HAL/S
+C/ files.
+
+  CPL269: COMPOOL;
 
   STRUCTURE PROCESS_CONTROL:
       1 SAVE_AREA RIGID,
@@ -9,4 +14,5 @@ C/ From PDF p. 169 in "Programming in HAL/S".
       1 STATUS INTEGER,
       1 NEXT NAME PROCESS_CONTROL-STRUCTURE,
       1 LAST NAME PROCESS_CONTROL-STRUCTURE;
-      
+
+ CLOSE CPL269;

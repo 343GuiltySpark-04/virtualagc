@@ -29,8 +29,14 @@
 #               2023-06-06 RSB  Now handles "SHL expression" and "SHR expression".
 #               2023-06-17 RSB  Corrected expansion (and formatting) of certain
 #                               shift operations.
+#               2023-07-03 RSB  Accounted for the syntax 
+#                                    IF (EXPRESSION)op(EXPRESSION)
+#               2023-07-06 RSB  Implemented mangled names for constants (re: REQ).
+#               2023-07-23 RSB  Prevented constant-name mangling in comment
+#                               fields.
 
 import re
+import copy
 from yaASMerrors import *
 from yaASMexpression import *
 from yaASMdefineMacros import lineSplit
@@ -64,6 +70,7 @@ telds = {}
 # Note that lines inside of an UNLIST/LIST block are marked (in expandedLines)
 # by being suffixed with unlistSuffix.
 unlistSuffix = " " + chr(127)
+mangledSymbols = {} # Track the mangling index for mangled constants.
 def preprocessor(lines, expandedLines, constants, macros, ptc=False, \
 				 allowUnlist=True):
 	global errors, telds
@@ -111,13 +118,7 @@ def preprocessor(lines, expandedLines, constants, macros, ptc=False, \
 			if inMacro != "":
 				continue
 			
-			# Take care of IF/ENDIF.  Every IF line I've seen so far has one of 
-			# the following forms:
-			#		IF	constant=(expression)
-			#		IF	constant<(expression)
-			#		IF	constant>(expression)
-			# where expression is usually a literal integer, but is sometimes
-			# an actual expression instead. Note that IF/ENDIF blocks are
+			# Take care of IF/ENDIF.  Note that IF/ENDIF blocks are
 			# sometimes nested.
 			if len(fields) >= 3 and fields[1] == "IF":
 				operand = fields[2]
@@ -134,9 +135,16 @@ def preprocessor(lines, expandedLines, constants, macros, ptc=False, \
 					addError(n, "Error: Illegal comparison", nn-1)
 					continue
 				constant = ofields[0]
-				if constant not in constants:
+				if constant[:1] == "(" and constant[-1:] == ")":
+					constantValue,error = yaEvaluate(constant[1:-1], constants)
+					if error != "":
+						addError(n, "Error: Cannot evaluate expression", nn-1)
+						continue
+				elif constant not in constants:
 					addError(n, "Error: Constant (%s) not found" % constant, nn-1)
 					continue
+				else:
+					constantValue = constants[constant]
 
 				expression = ofields[1][:-1]
 				value,error = yaEvaluate(expression, constants)
@@ -144,9 +152,9 @@ def preprocessor(lines, expandedLines, constants, macros, ptc=False, \
 					addError(n, "Error: Cannot evaluate expression", nn-1)
 					continue
 					
-				v1 = constants[constant]["number"]
+				v1 = constantValue["number"]
 				v2 = value["number"]
-				if "scale" in value or "scale" in constants[constant]:
+				if "scale" in value or "scale" in constantValue:
 					addError(n, "Implementation: Scale in IF condition", nn-1)
 					continue
 				isTrue = False
@@ -190,6 +198,93 @@ def preprocessor(lines, expandedLines, constants, macros, ptc=False, \
 			else: # .lvdc
 				fmt = "%-7s%-8s%s"
 				
+			# We have a bit of a problem now, in that we have to replace any
+			# symbolic constants (other than in comments) with their current 
+			# values, recognizing that the constants may be redefined later 
+			# via REQ.  If we don't do this now, the assembly pass will have to 
+			# do it, but it will have only the final values, not the values
+			# at this specific point in the code.  Finding the replacement 
+			# points is a big inefficiency. Too bad!  But it's worse than that,
+			# since the syntax is going to require that the replacements be
+			# decimals in some cases, and octals in others, and we really don't
+			# have the parsing smarts to know that at this point.  To get around
+			# that, we don't replace the constants with their *values*, but 
+			# instead clone the constants with new, mangled names, and replace
+			# the constants by their mangled forms.  Yuck!  But the mangled
+			# forms won't be REQ'd later, so the assembly pass will at least 
+			# evaluate them correctly.  Symbolic names in LVDC assembly language
+			# are limited to 6 characters, and obey other rules, but 
+			# fortunately, because the mangled names won't appear in the label
+			# fields of punchcards, I think we can relax those naming rules.
+			# At least as a first cut at it, the mangling will be:
+			#		SYMBOL -> SYMBOL#n
+			# where n starts at 0 for the first mangling of SYMBOL, 1 for
+			# the second mangling, and so on.  That means that at the output
+			# stage, if desired, some magic could be done to unmangle SYMBOL#0
+			# to just SYMBOL, while retaining SYMBOL##1, SYMBOL##2, and so on.
+			# The places where we need to make these replacements are, I 
+			# believe, always delimited by (...), though every line may contain
+			# several such aread.  We have to find all of them and process them
+			# each.  Alas, the simple method I use disallows embedded 
+			# parentheses.
+			c = 22 # Do a crude check to determine where the comment starts.
+			for c in range(16, len(line)):
+				if line[c].isspace():
+					break
+			c += 1
+			if c < 23:
+				c = 23
+			pAreas = []
+			for p in re.finditer("\\([^)]*\\)", line[:c]): # Find (...) areas.
+				pAreas.append(p.span())
+			starts = {}
+			for constant in constants:
+				if "#" in constant:
+					continue
+				c = constants[constant]
+				if not isinstance(c, dict):
+					continue
+				if "pat1" not in c:
+					noDot = constant.replace(".", "[.]")
+					c["pat1"] = re.compile("\\b" + noDot + "[^.A-Z0-9#]")
+					c["pat2"] = re.compile("\\b" + noDot + "$")
+				for pArea in pAreas:
+					matches = c["pat1"].finditer(line[pArea[0]:pArea[1]])
+					for match in matches:
+						starts[match.span()[0] + pArea[0]] = constant
+					match = c["pat2"].search(line[pArea[0]:pArea[1]])
+					if match != None:
+						starts[match.span()[0]+pArea[0]] = constant
+			if len(starts) > 0:
+				# At this point, the keys in the dictionary starts{} are the
+				# starting positions of all of the matches found in the
+				# input line, and the values of those keys are the names
+				# of the constant matched.  We simply have to build a
+				# replacement input line in which all of the matches have
+				# been replaced by mangled constants.  Note that 
+				# mangledSymbols[constant][] is a list that tracks all of the
+				# values assigned to constant, and a value at position n
+				# corresponds to mangled constant#n.
+				newLine = ""
+				lastEnd = 0
+				for start in sorted(starts):
+					constant = starts[start]
+					c = constants[constant]
+					if constant not in mangledSymbols:
+						mangledSymbols[constant] = []
+					if c not in mangledSymbols[constant]:
+						mangledSymbols[constant].append(c)
+					index = mangledSymbols[constant].index(c)
+					mangled = "%s#%03d" % (constant, index)
+					if mangled not in constants:
+						constants[mangled] = copy.deepcopy(c)
+					newLine = newLine + line[lastEnd:start] + mangled
+					lastEnd = start + len(constant)
+				newLine = newLine + line[lastEnd:]
+				line = newLine
+				expandedLines[n][nn-1] = line
+				fields = lineSplit(line)
+				
 			# Expand macro invocations.  Regarding what happens with nested
 			# macros, the following expands only one level of macros.  The
 			# logic of the containing loop then processes each of the expanded
@@ -227,7 +322,7 @@ def preprocessor(lines, expandedLines, constants, macros, ptc=False, \
 					expandedMacro = []
 					for m in range(0,len(macroLines)):
 						# Replace each formal argument with corresponding macro 
-						# parameter.these formal arguments can appear anywhere
+						# parameter. These formal arguments can appear anywhere
 						# in the line, not just in operand fields.
 						mline = macroLines[m]	
 						if "&C1" in mline:
@@ -375,7 +470,10 @@ def preprocessor(lines, expandedLines, constants, macros, ptc=False, \
 				continue
 				'''
 				pass
-			elif (not ptc) and len(fields) >= 3 and fields[1] == "CDS" and fields[2] in constants and type(constants[fields[2]]) == type([]) and len(constants[fields[2]]) >= 3:
+			elif (not ptc) and len(fields) >= 3 and fields[1] == "CDS" and \
+					fields[2] in constants and \
+					type(constants[fields[2]]) == type([]) and \
+					len(constants[fields[2]]) >= 3:
 				constant = constants[fields[2]]
 				op = fields[1]
 				if constant[0] == "DEQS":
@@ -386,16 +484,20 @@ def preprocessor(lines, expandedLines, constants, macros, ptc=False, \
 				nn -= 1
 				expandedLines[n][nn] = line
 				continue
-			elif len(fields) >= 3 and fields[0] != "" and fields[1] in ["EQU", "REQ"]:
+			elif len(fields) >= 3 and fields[0] != "" and \
+					fields[1] in ["EQU", "REQ"]:
 				value,error = yaEvaluate(fields[2], constants)
 				if error != "":
 					addError(n, "Error: " + error)
 				else:
 					if fields[1] == "EQU" and fields[0] in constants:
 						value = constants[fields[0]]
-					elif False and fields[1] == "REQ" and fields[0] not in constants:
-						addError(n, "Error: Constant does not exist, " + fields[0])
+					elif False and fields[1] == "REQ" and \
+							fields[0] not in constants:
+						addError(n, \
+								"Error: Constant does not exist, " + fields[0])
 					constants[fields[0]] = value 
+					# print("!", fields[0], fields[1], value["number"])
 			elif len(fields) >= 3 and fields[1] == "CALL":
 				ofields = fields[2].split(",")
 				if len(ofields) == 1:
@@ -440,9 +542,10 @@ def preprocessor(lines, expandedLines, constants, macros, ptc=False, \
 						count -= thisCount
 				else:
 					expandedSH.append(fmt % (thisLabel, operator, count))
-				nn -= 1
-				expandedLines[n][nn:nn+1] = expandedSH
-				nn += len(expandedSH)
+				if fields[2] not in ["0", "1", "2"]:
+					nn -= 1
+					expandedLines[n][nn:nn+1] = expandedSH
+					nn += len(expandedSH)
 				continue
 			elif len(fields) >= 3 and fields[2][:1] == "=" \
 					and fields[2][:3] != "=H'" and fields[2][:2] != "=O":
@@ -452,7 +555,13 @@ def preprocessor(lines, expandedLines, constants, macros, ptc=False, \
 					# it into "=(n)B(expression)".
 					operand = operand.replace("=", "=(").replace("B(", ")B(")
 					#print(fields[2], operand, file=sys.stderr)
-				value,error = yaEvaluate(operand[1:], constants)
+				try:
+					#print("!##", operand[1:], file=sys.stderr)
+					value,error = yaEvaluate(operand[1:], constants)
+				except:
+					print("Implementation error:", expandedLines[n][nn-1], \
+						operand, file=sys.stderr)
+					sys.exit(1)
 				if error != "":
 					addError(n, "Error: " + error)
 				else:
@@ -461,14 +570,16 @@ def preprocessor(lines, expandedLines, constants, macros, ptc=False, \
 						replacement += "B" + str(value["scale"])
 					if replacement != fields[2]:
 						nn -= 1
-						expandedLines[n][nn] = line.replace(fields[2], replacement)
+						expandedLines[n][nn] = line.replace(fields[2], \
+														replacement)
 						continue
 	
 if False:
 	# Just print out some results from the preprocessor and then exit.
 	print("Constants:")		
 	for n in sorted(constants):
-		print("\t" + n + "\t= " + str(constants[n]["number"]) + "B" + str(constants[n]["scale"]))
+		print("\t" + n + "\t= " + str(constants[n]["number"]) + "B" + \
+			str(constants[n]["scale"]))
 	print("Macros:")
 	for n in sorted(macros):
 		print("\t" + n + "\t= " + str(macros[n]))

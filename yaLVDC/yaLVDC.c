@@ -34,6 +34,10 @@
  * 				capability the the yaOBC program, but I'm
  * 				just too lazy and would prefer to write it
  * 				from scratch.
+ *              2023-07-15 MAS  Changed LVDC startup to begin at address
+ *                              000, instead of loading a HOP constant
+ *                              from there.
+ *              2023-08-08 RSB  Added clockMultiplier.
  */
 
 #include <stdio.h>
@@ -183,13 +187,23 @@ addBacktrace(int16_t fromInstruction, int32_t fromWhere, int32_t toWhere,
 // Main program.
 
 int clockDivisor = 1;
+double parmClockMultiplier = 1, clockMultiplier = 1;
+double cyclesPerTick;
 unsigned long cycleCount = 0;
+
+void
+setCpuTiming(void)
+{
+  cyclesPerTick = clockMultiplier / (SECONDS_PER_CYCLE * sysconf(_SC_CLK_TCK))
+      / clockDivisor;
+}
+
 int
 main(int argc, char *argv[])
 {
   int retVal = 1;
   clock_t startingTime, currentTime, pausedTime = 0, panelPauseTime = 0;
-  double cyclesPerTick;
+
   unsigned long nextSnapshot, snapshotIntervalCycles = 5.0
       / SECONDS_PER_CYCLE;
   struct tms TmsStruct;
@@ -241,13 +255,9 @@ main(int argc, char *argv[])
   fflush(stdout);
   state.hopSaver = 0;
 
-  cyclesPerTick = 1.0 / (SECONDS_PER_CYCLE * sysconf(_SC_CLK_TCK))
-      / clockDivisor;
+  setCpuTiming();
   startingTime = times(&TmsStruct);
-  if (ptc)
-    state.hop = 0;
-  else
-    state.hop = state.core[0][0][2][0];
+  state.hop = 0;
 
   // Emulation.
   while (1)

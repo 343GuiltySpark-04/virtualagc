@@ -32,11 +32,21 @@
  * Reference:   http://www.ibibio.org/apollo
  * Mods:        2019-09-18 RSB  Began.
  *              2020-04-29 RSB  Added the --ptc switch.
+ *              2023-07-28 MAS  Added a multiply/divide counter and
+ *                              registers to hold intermediate PQR
+ *                              multiplication/division results.
+ *              2023-08-01 MAS  Added counters for LVDA timers, generalized
+ *                              EXM pending instructions for use with
+ *                              interrupts, and changed interrupt inhibit
+ *                              to a cycle counter.
+ *              2023-08-04 RSB  Added pioLogFlags, pioLogFile.
+ *              2023-08-08 RSB  Added clockMultiplier and state.pioChangeFull.
  */
 
 #ifndef yaLVDC_h
 #define yaLVDC_h
 
+#include <stdio.h>
 #include <stdint.h>
 #include <limits.h>
 
@@ -78,6 +88,11 @@
 
 // See yaLVDC.c
 extern int clockDivisor;
+extern double parmClockMultiplier;
+extern double clockMultiplier;
+extern double cyclesPerTick;
+void
+setCpuTiming(void);
 extern int inhibitFetchMessages;
 extern unsigned long cycleCount;
 #define MAX_SYMBOL_LENGTH 10
@@ -140,6 +155,8 @@ extern int cpuCurrentAccumulator;
 extern char *coreFilename;
 extern int ptc;
 extern int coldStart;
+extern int pioLogFlags;
+extern FILE *pioLogFile;
 
 int
 parseCommandLineArguments(int argc, char *argv[]);
@@ -156,6 +173,9 @@ typedef struct
   int32_t hop;
   int32_t acc;
   int32_t pq;
+  int32_t pqPend1;
+  int32_t pqPend2;
+  int32_t mpyDivCount;
   int32_t hopSaver; // otherwise known as the "HOP saver" register.
   int32_t core[8][16][3][256];
   int32_t pio[01000];
@@ -163,11 +183,13 @@ typedef struct
   int32_t prs[01000]; // PTC only.
   struct
   {
-    int pending; // True or False, if last instruction was EXM or not.
-    int32_t nextHop; // HOP constant for next instruction (as if no pending EXM-modified instruction).
-    int32_t pendingHop; // HOP constant for the pending EXM-modified instruction.
-    int16_t pendingInstruction; // the EXM-modified instruction.
-  } pendingEXM; // LVDC only.
+    int pending; // True or False, if a queued instruction is pending.
+    int32_t nextHop; // HOP constant for next instruction (as if no pending instruction).
+    int32_t pendingHop; // HOP constant for the pending instruction.
+    int16_t instruction; // The pending instruction.
+  } pendingInstruction;
+  int32_t rtcDivider;
+  int timerDivider;
   // The following three are reset at the start of a runOneInstruction()
   // invocation, but changed if the associated pio[], cio[], or prs
   // change during the runOneInstruction().  That's because
@@ -178,6 +200,7 @@ typedef struct
   int pioChange;
   int cioChange;
   int prsChange;
+  int pioChangeFull;
   // The following is normally -1, but is set by runOneInstruction()
   // to the address of a HOP, TRA, TMI, or TNZ if it causes a jump
   // to an instruction that's out of sequence.
@@ -197,6 +220,7 @@ typedef struct
   int lastTypewriterCharCase;
   int interruptInhibitLatches;
   int masterInterruptLatch;
+  int pendingInterruptIndex;
   int progRegA17_22;
   int riLastHOP; // Just used for debugging.
   int riLastInstruction; // Just used for debugging.
@@ -213,15 +237,13 @@ typedef struct
   int prsDelayedParity[5];
   int prsParityDelayCount;
   int inhibit250;
-  // It's possible that I missed seeing it, but the PTC documentation doesn't cover
-  // something which I think is necessary, and that's that you can't have an interrupt
-  // immediately following an instruction like HOP, TRA, TNZ, or TMI (in some cases),
-  // since the HOPSAVE register would be immediately overwritten prior to the called
-  // subroutine saving it, and hence would destroy the return address of the called
-  // subroutine.  The inhibitInterruptsOneCycle field can be set within runOneInstruction(),
-  // and inhibit interrupts for a single instruction cycle (being immediately reset
-  // upon the next entry to runOneInstruction()).
-  int inhibitInterruptsOneCycle;
+  // Certain instructions in the LVDC and PTC inhibit interrupts for one or more clock
+  // cycles. HOP, EXM, and MPH all inhibit interrupts for 1 clock cycle; MPY inhibits
+  // for 5; and DIV inhibits for 8. This counter can be set to the number of clock
+  // cycles interrupts should be inhibited for, starting with the next call to
+  // runOneInstruction(). The counter is counted down immediately upon entry to
+  // runOneInstruction().
+  int inhibitInterruptCycles;
 } state_t;
 extern state_t state;
 typedef struct
@@ -315,7 +337,7 @@ processInterruptsAndIO(void);
 
 // See virtualWire.c
 // Socket stuff.
-#define MAX_LISTENERS 7
+#define MAX_LISTENERS 10
 extern int ServerBaseSocket;
 extern int PortNum;
 extern int virtualWireErrorCodes;

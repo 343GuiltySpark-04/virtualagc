@@ -1,22 +1,23 @@
-C/ Adapted from PDF p. 260 of "Programming in HAL/S".
+C/ Adapted from PDF p. 260 of "Programming in HAL/S".  Be sure to 
+C/ compile 189-IMU_DATA.hal in advance (with the compiler switch 
+C/ --templib) to insure that common-block CPL189 is in the template 
+C/ library.
 
-     STRUCTURE IMU_DATA:
-        1 DELTA_V ARRAY(3) INTEGER DOUBLE,
-        1 ATTITUDE ARRAY(3) INTEGER,
-        1 STATUS BIT(16);
-        
+D INCLUDE TEMPLATE CPL189
+
+ T260: PROGRAM; 
+ 
      DECLARE IMU_INPT IMU_DATA-STRUCTURE(3);
      DECLARE BEST_INTEGER;
      DECLARE PITCH_ANGLE SCALAR;
      
      DECLARE BEST_IMU NAME IMU_DATA-STRUCTURE;
-     
+  
   LOW_RATE:
   TASK;
      DECLARE BEST INTEGER;
-     DECLARE TBD PROCEDURE;
      CALL TBD ASSIGN(BEST);
-E            +                +
+     
 M    NAME(BEST_IMU) = NAME(IMU_INPT     );
 S     				   BEST;
 
@@ -36,4 +37,9 @@ C	...
 
   CLOSE HI_RATE;
   
+  TBD: PROCEDURE(N);
+     DECLARE N INTEGER, I INTEGER;
+     I = N;
+  CLOSE TBD;
   
+ CLOSE T260;

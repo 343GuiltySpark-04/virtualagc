@@ -43,6 +43,70 @@
  *                                  ACC.
  *                              3)  Assigned "spare" CIO 175 as an input port
  *                                  rather than an output port.
+ *              2023-07-16 MAS  Fixes for various bugs affecting only the LVDC:
+ *                              1)  CDS should not require A8 to be 0.
+ *                              2)  MPH was not loading the accumulator with PQ.
+ *                              3)  MPH/MPY were producing incorrect results;
+ *                                  they have been replaced with a simple
+ *                                  implementation of the algorithm used by the
+ *                                  LVDC.
+ *              2023-07-28 MAS  More LVDC fixes:
+ *                              1)  MPY and DIV now continuously update PQR util
+ *                                  they are complete.
+ *                              2)  The partial product of the multiplicand with
+ *                                  the lower 12 bits of the accumulator available
+ *                                  the second instruction after MPY is scaled
+ *                                  differently from the final product. This
+ *                                  difference is now accounted for.
+ *                              3)  Scaling in DIV has been corrected to produce
+ *                                  correct results.
+ *              2023-07-29 MAS  Replaced the implementation of DIV with a simulation
+ *                              of the non-restoring division algorithm implemented
+ *                              by the hardware. This was necessary to achieve
+ *                              consistent agreement with hardware simulation
+ *                              division results.
+ *              2023-07-30 MAS  Corrected various bugs in the implementation of EXM.
+ *              2023-08-01 MAS  Lots of changes related to PIO and interrupts.
+ *                              1)  The automatic HOP save now stores a HOP constant
+ *                                  with a LOC of 0 unless a branch was taken, in
+ *                                  which case the pre-branch nextLOC is used.
+ *                              2)  TRA, TMI, and TNZ no longer inhibit interrupts
+ *                                  for one cycle.
+ *                              3)  EXM no longer uses the interrupt inhibit feature
+ *                                  because although it *does* inhibit interrupts
+ *                                  for one instruction, the current EXM implementation
+ *                                  forces both cycles to occur in the same call to
+ *                                  runOneInstruction().
+ *                              4)  The one-cycle interrupt inhibit has been changed
+ *                                  to a counter, which is now used by HOP, MPY,
+ *                                  MPH, and DIV.
+ *                              5)  Interrupts are now delayed by one cycle from
+ *                                  when they were first detected.
+ *                              6)  Interrupts now force a real HOP instruction to
+ *                                  happen. The same mechanism that was being used
+ *                                  for EXM is now also used for this forced HOP
+ *                                  instruction.
+ *                              7)  Bits 8 and 9 of LVDA PIO instructions are no
+ *                                  longer used in channel selection (they only
+ *                                  determine if the accumulator or memory are the
+ *                                  source of the data being sent to the LVDA).
+ *              2023-08-02 MAS  Moved PQR countdown to the start of runOneInstruction
+ *                              and positioned the reenterForEXM label such that both
+ *                              this countdown and the interrupt inhibit one are
+ *                              re-executed for EXM's second cycle.
+ *              2023-08-05 RSB  Moved PIO logging from processInterruptsAndIO.c
+ *                              to here.  I was obliged to change the internal
+ *                              variable cycleCount in the runOneInstruction()
+ *                              function to deltaCycleCount, because I needed
+ *                              to use the global variable cycleCount (same
+ *                              name!) for logging.
+ *              2023-08-07 RSB  Now automatically flushes the pioLogFile, if
+ *                              there's any output pending and it has been
+ *                              12K cycles since the last PIO.
+ *              2023-08-08 RSB  Restored operation of PIO virtual wire, which
+ *                              had been broken.
+ *              2023-08-16 RSB  Better error message for instruction from
+ *                              empty address.
  */
 
 #include <stdlib.h>
@@ -273,7 +337,8 @@ fetchInstruction(int module, int sector, int syllable, int loc,
       if (fetchedData == -1)
         {
           if (!inhibitFetchMessages)
-            printf("Cannot fetch instruction from empty data address\n");
+            printf("Cannot fetch instruction from empty address %o-%02o-%o-%03o.\n",
+                module, sector, syllable, loc);
           goto done;
         }
       *instructionFromDataMemory = 1;
@@ -309,12 +374,65 @@ convertNativeToDataWord(int integer)
   return (integer & dataWordMask);
 }
 
+// Calculate the delta 1 term for multiplication
+int64_t
+mpyDelta1(int multiplier, int multiplicand)
+{
+  uint8_t bits = multiplier & 07;
+  switch (bits)
+    {
+  case 01:
+  case 02:
+    return 2 * multiplicand;
+  case 03:
+    return 4 * multiplicand;
+  case 04:
+    return -4 * multiplicand;
+  case 05:
+  case 06:
+    return -2 * multiplicand;
+  default:
+    return 0;
+    }
+}
+
+// Calculate the delta 2 term for multiplication
+int64_t
+mpyDelta2(int multiplier, int multiplicand)
+{
+  uint8_t bits = (multiplier >> 2) & 07;
+  switch (bits)
+    {
+  case 01:
+  case 02:
+    return 8 * multiplicand;
+  case 03:
+    return 16 * multiplicand;
+  case 04:
+    return -16 * multiplicand;
+  case 05:
+  case 06:
+    return -8 * multiplicand;
+  default:
+    return 0;
+    }
+}
+
 void
 checkForInterrupts(void)
 {
   // Check if an interrupt has been triggered.
-  if (!state.masterInterruptLatch && !state.inhibitInterruptsOneCycle)
+  if (state.masterInterruptLatch == 0)
     {
+      // Interrupt detection happens in a few stages in the LVDA (and
+      // presumably also the PTC). Once an interrupt bit has been set,
+      // it must first make it past an inhibit mask. If this happens,
+      // an "interrupt has occurred" bit is sent into a delay line.
+      // This bit emerges 1 LVDC/PTC instruction cycle later, at which
+      // point the interrupt latch INTC is set. The output of this latch
+      // is applied to the processor, which will handle it as soon as
+      // temporary global interrupt inhibits (via HOP, EXM, MPY, MPH, or
+      // DIV instructions) are lifted.
       if (ptc)
         {
           int i, intLatch, intInhibit;
@@ -326,20 +444,34 @@ checkForInterrupts(void)
               break;
           if (i < 16)
             {
+              // Send an interrupt bit into the delay line.
               state.masterInterruptLatch = 1;
-              state.hop = state.core[0][017][2][i];
+              state.pendingInterruptIndex = i;
               //printf("Interrupt %d.\n", i + 1);
             }
         }
       else // LVDC
         {
-          if (state.pio[0137] != 0)
+          if (state.pio[0137] & ~(state.pio[072] << 1))
             {
-              hopStructure_t hs;
+              // Send an interrupt bit into the delay line.
               state.masterInterruptLatch = 1;
-              parseHopConstant(state.hop, &hs);
-              state.hop = state.core[hs.im][017][2][0];
+              state.pendingInterruptIndex = 0;
             }
+        }
+    }
+  else if (state.masterInterruptLatch == 1)
+    {
+      // Interrupt bit has emerged from the delay line, and INTC has
+      // been set. Trigger an interrupt as soon as possible.
+      if (state.inhibitInterruptCycles == 0)
+        {
+          state.masterInterruptLatch = 2;
+          state.pendingInstruction.nextHop = state.hop;
+          state.pendingInstruction.pending = 1;
+          state.pendingInstruction.pendingHop = state.pendingInstruction.nextHop;
+          state.pendingInstruction.instruction = 000020 |
+              (state.pendingInterruptIndex << 5);
         }
     }
 
@@ -354,17 +486,25 @@ checkForInterrupts(void)
 int instructionFromDataMemory = 0;
 int dataFromInstructionMemory = 0;
 int dataOverwritesInstructionMemory = 0;
+int pioFlushCount = -1;
 int
 runOneInstruction(int *cyclesUsed)
 {
   int retVal = 1;
-  int cycleCount = 1, nextLOC, nextS, isHOP = 0;
+  int deltaCycleCount = 1, saveLOC, nextLOC, nextS, isHOP = 0;
   int64_t dummy;  // For multiplication intermediate result.
   hopStructure_t hopStructure, rawHopStructure, rawestHopStructure;
   uint16_t instruction, operand9;
   uint8_t op, operand, residual, a8, a9;
   int32_t fetchedFromMemory;
-  //int modOperand = 0;
+
+  if (pioFlushCount == 0)
+    {
+      fflush(pioLogFile);
+      pioFlushCount = -1;
+    }
+  else if (pioFlushCount > 0)
+    pioFlushCount -= 1;
 
   // If we changes any of state.pio[], state.cio[], or state.prs, then
   // the following state.xxxChange variables will be set accordingly to
@@ -430,15 +570,26 @@ runOneInstruction(int *cyclesUsed)
     state.prsParityDelayCount++;
 
   // Set global variables providing background info on the emulation.
-  state.inhibitInterruptsOneCycle = 0;
+  reenterForEXM: ;
+  if (state.inhibitInterruptCycles > 0)
+    state.inhibitInterruptCycles--;
   dataFromInstructionMemory = 0;
   instructionFromDataMemory = 0;
 
-  reenterForEXM: ;
-  if (state.pendingEXM.pending)
+  if (state.mpyDivCount > 0)
     {
-      state.pendingEXM.pending = 0;
-      state.hop = state.pendingEXM.pendingHop;
+      // Copy ongoing MPY/DIV results into PQ
+      state.mpyDivCount--;
+      if (state.mpyDivCount > 0)
+        state.pq = state.pqPend1;
+      else
+        state.pq = state.pqPend2;
+    }
+
+  if (state.pendingInstruction.pending)
+    {
+      state.pendingInstruction.pending = 0;
+      state.hop = state.pendingInstruction.pendingHop;
       if (parseHopConstant(state.hop, &hopStructure))
         {
           printf("Cannot interpret current instruction address (HOP=%09o)\n",
@@ -446,16 +597,16 @@ runOneInstruction(int *cyclesUsed)
           runStepN = 0;
           goto done;
         }
-      if (parseHopConstant(state.pendingEXM.nextHop, &rawHopStructure))
+      if (parseHopConstant(state.pendingInstruction.nextHop, &rawHopStructure))
         {
           printf("Cannot interpret next instruction address (HOP=%09o)\n",
-              state.pendingEXM.nextHop);
+              state.pendingInstruction.nextHop);
           runStepN = 0;
           goto done;
         }
       nextLOC = rawHopStructure.loc;
       nextS = rawHopStructure.s;
-      instruction = state.pendingEXM.pendingInstruction;
+      instruction = state.pendingInstruction.instruction;
     }
   else
     {
@@ -493,17 +644,13 @@ runOneInstruction(int *cyclesUsed)
   a8 = (operand >> 7) & 1;
   residual = a9;
   operand9 = operand | (a9 << 8);
-  // The following has something to do with EXM, but doesn't work as-is,
-  // since it messes up almost all operands.  Fix later.
-  //operand = (operand & ~3) | modOperand;
-  //modOperand = 0;
 
   // Execute the instruction.
   if (op == 000)
     {
       // HOP
       isHOP = 1;
-      state.inhibitInterruptsOneCycle = 1;
+      state.inhibitInterruptCycles = 1;
       if (fetchData(hopStructure.dm, residual, hopStructure.ds, operand,
           &fetchedFromMemory, &dataFromInstructionMemory))
         {
@@ -517,26 +664,58 @@ runOneInstruction(int *cyclesUsed)
 #endif
       state.lastHop = state.hop;
       state.hop = fetchedFromMemory;
+      saveLOC = nextLOC;
     }
   else if (!ptc && (op == 001 || op == 005))
     {
       // MPY or MPH
       // The actual LVDC had a pretty complex behavior with this instruction,
       // in that the full 26-bit result would become available 4 cycles later,
-      // but after 2 cycles you could fetch the less-significant word of the
-      // result from PQ.  At least at first, I'm not going to implement it that
-      // way, and I'll just provide the full result in PQ immediately.  I don't
-      // see a problem with doing that.
+      // but after 2 cycles you could fetch the partial product of the
+      // multiplicand with the lower 12 bits of the accumulator. This product
+      // is formed as if these 12 bits were shifted up to be the most significant
+      // bits of the accumulator rather than their real position.
       if (fetchData(hopStructure.dm, residual, hopStructure.ds, operand,
           &fetchedFromMemory, &dataFromInstructionMemory))
         goto done;
-      // The LVDC uses only 24 bits of the multiplicand and multitplier, so the
-      // 2 least significant bits are discarded.  (Assumes native 2's-complement.)
-      dummy = (convertDataWordToNative(fetchedFromMemory) & ~3)
-          * (convertDataWordToNative(state.acc) & ~3);
-      state.pq = convertNativeToDataWord(dummy / (1 << 25));
+
+      // The following is a simple implementation of the algorithm used by
+      // the LVDC for multiplication. This is done instead of using native
+      // multiplication because the latter sometimes produces off-by-one
+      // results from this approach, presumably due to differences in
+      // precision.
+      int multiplier = (state.acc >> 1) & ~1;
+      int multiplicand = convertDataWordToNative(fetchedFromMemory) & ~3;
+      dummy = 0;
+      for (uint8_t i = 0; i < 6; i++)
+        {
+          dummy += mpyDelta2(multiplier, multiplicand) +
+                   mpyDelta1(multiplier, multiplicand);
+          dummy >>= 4;
+          multiplier >>= 4;
+          if (i == 2)
+            state.pqPend1 = dummy & dataWordMask;
+        }
+      state.pqPend2 = dummy & dataWordMask;
+
+      // MPH stops execution for five cycles, and automatically loads PQ
+      // into the accumulator at the end.
       if (op == 005)
-        cycleCount = 5;
+        {
+          deltaCycleCount = 5;
+          state.mpyDivCount = 1;
+          state.acc = state.pqPend2;
+          // A slight quirk of MPY is that even though it completed in
+          // five cycles, interrupts are inhibited for one more cycle after
+          // it completes. In other words, an interrupt can never come in
+          // immediately following an MPH instruction.
+          state.inhibitInterruptCycles = 1;
+        }
+      else
+        {
+          state.mpyDivCount = 4;
+          state.inhibitInterruptCycles = 5;
+        }
     }
   else if (ptc && op == 001)
     {
@@ -660,27 +839,50 @@ runOneInstruction(int *cyclesUsed)
   else if (!ptc && op == 003)
     {
       // DIV
-      // We start by shifting the dividend as far left as possible, to insure
-      // that the quotient will have as many significant bits as possible.
-      // We'll shift the quotient down afterward to account for this.  The
-      // LVDC words are 26 bits, and we're using 64 bits for the intermediate
-      // values.
-      dummy = convertDataWordToNative(state.acc) * (1 << 28); // Scale ACC to 64 bits.
       if (fetchData(hopStructure.dm, residual, hopStructure.ds, operand,
           &fetchedFromMemory, &dataFromInstructionMemory))
         goto done;
-      dummy /= convertDataWordToNative(fetchedFromMemory);
-      // The quotient will now be 2**28 too big, so must rescale it.  Also, the
-      // LVDC only has a 24-bit quotient, so the two least-significant bits
-      // are discarded.  (Assumes native 2's-complement arithmetic.)
-      state.pq = convertNativeToDataWord((dummy / (1 << 28)) & ~3); // Undo scaling.
+
+      // The LVDC implements a form of non-restoring division, with a "sign
+      // shortcut". The hardware actually does this two bits at a time by
+      // predicting the sign of the next remainder, but it is simplest
+      // to simulate it by calculating one bit a time. Once the quotient
+      // is fully formed, its sign bit is complemented to obtain the
+      // final result. The nature of this algorithm leads to some slightly-
+      // off results (e.g. 000000000 / 377777777 = 377777774), so it must
+      // be directly simulated rather than using native host processor
+      // division.
+      int remainder = convertDataWordToNative(state.acc);
+      int divisor = convertDataWordToNative(fetchedFromMemory);
+      int quotient = 0;
+
+      for (uint8_t i = 0; i < 24; i++)
+        {
+          if ((remainder >= 0 && divisor >= 0) || (remainder < 0 && divisor < 0))
+            {
+              quotient = (quotient | 1) << 1;
+              remainder = (remainder << 1) - divisor;
+            }
+          else
+            {
+              quotient = quotient << 1;
+              remainder = (remainder << 1) + divisor;
+            }
+        }
+
+      quotient = (quotient << 1) ^ 0200000000;
+
+      state.pqPend1 = 0;
+      state.pqPend2 = convertNativeToDataWord(quotient);
+      state.mpyDivCount = 8;
+      state.inhibitInterruptCycles = 8;
     }
   else if (op == 004)
     {
       // TNZ
       if (state.acc != 0)
         {
-          state.inhibitInterruptsOneCycle = 1;
+          saveLOC = nextLOC;
           nextLOC = operand;
           nextS = residual;
           state.lastHop = state.hop;
@@ -710,7 +912,7 @@ runOneInstruction(int *cyclesUsed)
   else if (op == 010)
     {
       // TRA
-      state.inhibitInterruptsOneCycle = 1;
+      saveLOC = nextLOC;
       nextLOC = operand;
       nextS = residual;
       state.lastHop = state.hop;
@@ -740,16 +942,48 @@ runOneInstruction(int *cyclesUsed)
         state.acc = state.pio[operand9];
       else
         {
-          state.pioChange = operand9;
-          if (a8) // Source is the accumulator
-            state.pio[operand9] = state.acc;
+          int sourceValue;
+          // Bits 8-9 only determine the source of data being sent to
+          // the LVDA.
+          if (ptc)
+            state.pioChange = operand9;
+          else
+            state.pioChange = operand & 0177;
+          state.pioChangeFull = operand9;
+          if (!a8) // Source is the accumulator
+            sourceValue = state.acc;
           else // Source is memory.
             {
               if (fetchData(hopStructure.dm, residual, hopStructure.ds, operand,
                   &fetchedFromMemory, &dataFromInstructionMemory))
                 fetchedFromMemory = 0;
-              state.pio[operand9] = fetchedFromMemory;
+              sourceValue = fetchedFromMemory;
             }
+          state.pio[state.pioChange] = sourceValue;
+          if (pioLogFile != NULL && (pioLogFlags & 1) != 0)
+            {
+              int discard = 0;
+              // Can change discard to non-zero here if there are pioLogFlags
+              // asking to reject some channels or values.
+              if (discard == 0)
+                {
+                  if (-1 == fprintf(pioLogFile,
+                                                  "%lu\t>\t%03o\t%09o\t%09o\n",
+                                                  cycleCount,
+                                                  state.pioChangeFull,
+                                                  state.pio[006],
+                                                  sourceValue))
+                    {
+                      fclose(pioLogFile);
+                      pioLogFile = NULL;
+                      pioLogFlags = 0;
+                    }
+                  else
+                    pioFlushCount = 12000;
+                }
+            }
+
+
         }
     }
   else if (op == 013)
@@ -769,7 +1003,7 @@ runOneInstruction(int *cyclesUsed)
       // most-significant (26th) bit.
       if ((state.acc & signMask) != 0)
         {
-          state.inhibitInterruptsOneCycle = 1;
+          saveLOC = nextLOC;
           nextLOC = operand;
           nextS = residual;
           state.lastHop = state.hop;
@@ -794,7 +1028,7 @@ runOneInstruction(int *cyclesUsed)
       printf("CDS %o,%02o\n", rawHopStructure.dm, rawHopStructure.ds);
 #endif
     }
-  else if (!ptc && op == 016 && a8 == 0 && a9 == 0)
+  else if (!ptc && op == 016 && a9 == 0)
     {
       // CDS
       rawHopStructure.dm = (operand >> 1) & 07;
@@ -873,7 +1107,9 @@ runOneInstruction(int *cyclesUsed)
     {
       // SHF
       int sign = state.acc & signMask;
+#ifdef DEBUG_A_LOT
       printf("Shift %03o\n", operand);
+#endif
       switch (operand)
         {
       case 000:
@@ -908,33 +1144,41 @@ runOneInstruction(int *cyclesUsed)
       int syllable, modBits, dsIndex;
       uint8_t loc;
       hopStructure_t pendingHop;
+      // Isolate the modifier bits (A1-A4), syllable (A5), and location
+      // index (A6-A7) from the EXM instruction.
       modBits = operand & 017;
       syllable = (operand >> 4) & 1;
       loc = locs[(operand >> 5) & 3];
-      if (fetchInstruction(hopStructure.dm, 017, syllable, locs[loc],
+      // Fetch the instruction being targeted by the EXM.
+      if (fetchInstruction(hopStructure.dm, 017, syllable, loc,
           &instruction, &instructionFromDataMemory))
         goto done;
+      // Determine the data sector for the modified instruction from
+      // its address bits A2, A1, and A9.
       dsIndex = (instruction >> 4) & 7;
-      instruction = (instruction & ~023) | modBits;
-      state.pendingEXM.pendingInstruction = instruction;
+      // OR in the modifier bits, after first masking out bits A9,
+      // A1, and A2 (the former is always 0 in the modified instruction,
+      // and the latter two are directly replaced by the EXM).
+      instruction = (instruction & ~0160) | (modBits << 5);
+      state.pendingInstruction.instruction = instruction;
       rawHopStructure.loc = nextLOC;
       rawHopStructure.s = nextS;
-      if (formHopConstant(&rawHopStructure, &state.pendingEXM.nextHop))
+      if (formHopConstant(&rawHopStructure, &state.pendingInstruction.nextHop))
         goto done;
       pendingHop.im = hopStructure.dm;
       pendingHop.is = 017;
       pendingHop.s = syllable;
-      pendingHop.loc = locs[loc];
+      pendingHop.loc = loc;
       pendingHop.dm = hopStructure.dm;
       pendingHop.ds = secs[dsIndex];
       pendingHop.dupdn = hopStructure.dupdn;
       pendingHop.dupin = hopStructure.dupin;
-      if (formHopConstant(&pendingHop, &state.pendingEXM.pendingHop))
+      if (formHopConstant(&pendingHop, &state.pendingInstruction.pendingHop))
         goto done;
-      state.pendingEXM.pending = 1;
+      state.pendingInstruction.pending = 1;
       // We're just going to jump back up to the start of this function
       // to executed the modified instruction.  Because all the info
-      // for doing this is in the state.pendingEXM structure, we could
+      // for doing this is in the state.pendingInstruction structure, we could
       // instead exit the function normally and count on the parent code
       // to just call runOneInstruction() again later.  The problem is
       // that I'm not sure how all that affects stuff the parent code is
@@ -942,8 +1186,10 @@ runOneInstruction(int *cyclesUsed)
       // taking the simpler route of not returning until after the modified
       // instruction is executed.  But if all the details were worked out,
       // I think exiting the function normally would be better.
-      cycleCount++;
-      state.inhibitInterruptsOneCycle = 1;
+      // Note also that while EXM inhibits interrupts for 1 cycle, we do
+      // not need to set inhibitInterruptCycles since we're forcing the
+      // next cycle to immediately happen without exiting.
+      deltaCycleCount++;
       goto reenterForEXM;
     }
   else if (op == 017)
@@ -969,11 +1215,18 @@ runOneInstruction(int *cyclesUsed)
       if (formHopConstant(&rawHopStructure, &state.hop))
         goto done;
     }
-  rawestHopStructure.loc++;
+  // The automatic HOP save circuit constructs an *almost* complete
+  // HOP constant every cycle. Every part except the LOC is guaranteed
+  // to be present. The LOC is only included if HOP, TRA, TMI, or TNZ
+  // caused a branch above (each of which set saveLOC to nextLOC before
+  // applying the effects of the branch). Otherwise, the LOC field is
+  // simply 0.
+  rawestHopStructure.loc = saveLOC;
   if (formHopConstant(&rawestHopStructure, &state.hopSaver))
     state.hopSaver = -1;
 
-  *cyclesUsed = cycleCount;
+  *cyclesUsed = deltaCycleCount;
+  state.rtcDivider += deltaCycleCount;
   retVal = 0;
   done: ;
   return (retVal);

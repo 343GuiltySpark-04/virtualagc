@@ -39,8 +39,8 @@
                 <Unit filename="CONTRACT_AND_APPROVALS.agc" />
                 <Unit filename="CSM_GEOMETRY.agc" />
                 <Unit filename="DISPLAY_INTERFACE_ROUTINES.agc" />
-                <Unit filename="DOWN-TELEMETRY_PROGRAM.agc" />
                 <Unit filename="DOWNLINK_LISTS.agc" />
+                <Unit filename="DOWN-TELEMETRY_PROGRAM.agc" />
                 <Unit filename="ENTRY_LEXICON.agc" />
                 <Unit filename="ERASABLE_ASSIGNMENTS.agc" />
                 <Unit filename="EXECUTIVE.agc" />

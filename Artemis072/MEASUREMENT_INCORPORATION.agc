@@ -15,7 +15,6 @@
 ##		2010-02-20 RSB	Un-##'d this header.
 ##		2017-02-05 RSB	Proofed comment text by diff'ing vs Comanche 55
 ##				and corrected errors found.
-##		2021-05-30 ABS	ZEROD -> ZEROO
 
 ## Page 1252
 #  INCORP1--PERFORMS THE SIX DIMENSIONAL STATE VECTOR DEVIATION FOR POSITI
@@ -413,7 +412,7 @@ FAZA2		XCHX,2	LXC,2
 			0,2
 		XCHX,2	RVQ
 			S2
-ZEROO		=	ZEROVECS
+ZEROD		=	ZEROVECS
 54DD		DEC	54
 6DD		DEC	-6
 12DD		DEC	12

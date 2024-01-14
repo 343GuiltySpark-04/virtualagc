@@ -66,8 +66,8 @@
                 <Unit filename="LEM_FLIGHT_CONTROL_SYSTEM_TEST.agc" />
                 <Unit filename="LMP_COMMAND_ROUTINES.agc" />
                 <Unit filename="LOGSUB_ROUTINE.agc" />
-                <Unit filename="MAIN-test.agc" />
                 <Unit filename="MAIN.agc" />
+                <Unit filename="MAIN-test.agc" />
                 <Unit filename="MASS_CALCULATOR.agc" />
                 <Unit filename="MISSION_PHASE_11-DPS2_FITH_APS1.agc" />
                 <Unit filename="MISSION_PHASE_13-APS2.agc" />
@@ -75,10 +75,10 @@
                 <Unit filename="MISSION_PHASE_2_GUIDANCE_REFERENCE_RELEASE_PLUS_BOOST_MONITOR.agc" />
                 <Unit filename="MISSION_PHASE_6_COAST_SIVB_ATTACHED.agc" />
                 <Unit filename="MISSION_PHASE_8-DPS_COLD_SOAK.agc" />
-                <Unit filename="MP4-CONTINGENCY_ORBIT_INSERTION.agc" />
-                <Unit filename="MP9-DPS_1_BURN.agc" />
                 <Unit filename="MP_3_SUBORBITAL_ABORT.agc" />
+                <Unit filename="MP4-CONTINGENCY_ORBIT_INSERTION.agc" />
                 <Unit filename="MP_7-SIVB_LEM_SEPARATION.agc" />
+                <Unit filename="MP9-DPS_1_BURN.agc" />
                 <Unit filename="OPTIMUM_PRELAUNCH_ALIGNMENT_CALIBRATION.agc" />
                 <Unit filename="ORBITAL_INTEGRATION_PROGRAM.agc" />
                 <Unit filename="P-AXIS_REACTION_CONTROL_SYSTEM_AUTOPILOT.agc" />

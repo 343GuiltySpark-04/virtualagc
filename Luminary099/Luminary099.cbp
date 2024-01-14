@@ -43,8 +43,8 @@
                 <Unit filename="DAPIDLER_PROGRAM.agc" />
                 <Unit filename="DAP_INTERFACE_SUBROUTINES.agc" />
                 <Unit filename="DISPLAY_INTERFACE_ROUTINES.agc" />
-                <Unit filename="DOWN-TELEMETRY_PROGRAM.agc" />
                 <Unit filename="DOWNLINK_LISTS.agc" />
+                <Unit filename="DOWN-TELEMETRY_PROGRAM.agc" />
                 <Unit filename="ERASABLE_ASSIGNMENTS.agc" />
                 <Unit filename="EXECUTIVE.agc" />
                 <Unit filename="EXTENDED_VERBS.agc" />
@@ -78,7 +78,6 @@
                 <Unit filename="MAIN.agc" />
                 <Unit filename="MEASUREMENT_INCORPORATION.agc" />
                 <Unit filename="ORBITAL_INTEGRATION.agc" />
-                <Unit filename="P-AXIS_RCS_AUTOPILOT.agc" />
                 <Unit filename="P12.agc" />
                 <Unit filename="P20-P25.agc" />
                 <Unit filename="P30,P37.agc" />
@@ -88,6 +87,7 @@
                 <Unit filename="P51-P53.agc" />
                 <Unit filename="P70-P71.agc" />
                 <Unit filename="P76.agc" />
+                <Unit filename="P-AXIS_RCS_AUTOPILOT.agc" />
                 <Unit filename="PHASE_TABLE_MAINTENANCE.agc" />
                 <Unit filename="PINBALL_GAME__BUTTONS_AND_LIGHTS.agc" />
                 <Unit filename="PINBALL_NOUN_TABLES.agc" />

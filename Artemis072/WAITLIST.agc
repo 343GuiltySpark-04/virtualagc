@@ -17,7 +17,6 @@
 ##				and/or octopus/ProoferComments as most-appropriate.
 ##		2017-03-16 RSB	Comment-text fixes identified in 5-way
 ##				side-by-side diff of Luminary 69/99/116/131/210.
-##		2021-05-30 ABS	Added SUPERRSM location symbol.
 
 ## Page 1221
 
@@ -438,7 +437,7 @@ TASKOVER	CCS	RUPTAGN		# IF +1 RETURN TO T3RUPT, IF -0 RESUME.
 		TS	BBANK
 		TCF	T3RUPT2		# DISPATCH NEXT TASK IF IT WAS DUE.
 
-SUPERRSM	CA	BANKRUPT
+		CA	BANKRUPT
 		EXTEND
 		WRITE	SUPERBNK	# RESTORE SUPERBANK BEFORE RESUME IS DONE
 

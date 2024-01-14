@@ -38,8 +38,8 @@
                 <Unit filename="CONIC_SUBROUTINES.agc" />
                 <Unit filename="CSM_GEOMETRY.agc" />
                 <Unit filename="DISPLAY_INTERFACE_ROUTINES.agc" />
-                <Unit filename="DOWN-TELEMETRY_PROGRAM.agc" />
                 <Unit filename="DOWNLINK_LISTS.agc" />
+                <Unit filename="DOWN-TELEMETRY_PROGRAM.agc" />
                 <Unit filename="ENTRY_LEXICON.agc" />
                 <Unit filename="ERASABLE_ASSIGNMENTS.agc" />
                 <Unit filename="EXECUTIVE.agc" />
@@ -101,6 +101,7 @@
                 <Unit filename="SYSTEM_TEST_STANDARD_LEAD_INS.agc" />
                 <Unit filename="T4RUPT_PROGRAM.agc" />
                 <Unit filename="TAGS_FOR_RELATIVE_SETLOC_AND_BLANK_BANK_CARDS.agc" />
+                <Unit filename="Template.agc" />
                 <Unit filename="TIME_OF_FREE_FALL.agc" />
                 <Unit filename="TPI_SEARCH.agc" />
                 <Unit filename="TVCDAPS.agc" />
@@ -111,7 +112,6 @@
                 <Unit filename="TVCRESTARTS.agc" />
                 <Unit filename="TVCROLLDAP.agc" />
                 <Unit filename="TVCSTROKETEST.agc" />
-                <Unit filename="Template.agc" />
                 <Unit filename="UPDATE_PROGRAM.agc" />
                 <Unit filename="WAITLIST.agc" />
 		<Extensions>

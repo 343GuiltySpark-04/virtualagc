@@ -36,9 +36,9 @@
                 <Unit filename="SmallyCNTRCHK.agc" />
                 <Unit filename="SmallyCOUNTCHK.agc" />
                 <Unit filename="SmallyCYCLSHFT.agc" />
+                <Unit filename="SmallyDASINCR.agc" />
                 <Unit filename="SmallyD--LCHK.agc" />
                 <Unit filename="SmallyD--SC.agc" />
-                <Unit filename="SmallyDASINCR.agc" />
                 <Unit filename="SmallyDVCHECK.agc" />
                 <Unit filename="SmallyDVCHK.agc" />
                 <Unit filename="SmallyDXCHDIM.agc" />
@@ -86,9 +86,9 @@
                 <Unit filename="ValidateNOOP.agc" />
                 <Unit filename="ValidateOVSK.agc" />
                 <Unit filename="ValidateQXCH.agc" />
+                <Unit filename="ValidateSmally.agc" />
                 <Unit filename="ValidateSQUARE.agc" />
                 <Unit filename="ValidateSU.agc" />
-                <Unit filename="ValidateSmally.agc" />
                 <Unit filename="ValidateTCAA.agc" />
                 <Unit filename="ValidateTS.agc" />
                 <Unit filename="ValidateX.agc" />

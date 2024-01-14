@@ -15,7 +15,6 @@
 ##		2010-02-20 RSB	Un-##'d this header.
 ##		2017-01-21 RSB	Proofed comment text by diff'ing vs Comanche 55
 ##				and corrected errors found.
-##		2021-05-30 ABS	Added empty page 191.
 
 ## Page 179
 		SETLOC	DOWNTELM
@@ -537,5 +536,3 @@ DNTABLE		GENADR	CMCSTADL
 
 # ------------------------------------------------------------------------
 
-## Page 191
-## Empty page

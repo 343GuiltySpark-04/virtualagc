@@ -1,7 +1,7 @@
 ### FILE="Main.annotation"
 ## Copyright:	Public domain.
 ## Filename:	KALCMANU_STEERING.agc
-## Purpose:	Part of the source code for Colossus build 237.  
+## Purpose:	Part of the source code for Colossus build 237.
 ##		This is for the Command Module's (CM) Apollo Guidance
 ##		Computer (AGC), for Apollo 8.
 ## Assembler:	yaYUL
@@ -9,7 +9,7 @@
 ## Website:	www.ibiblio.org/apollo/index.html
 ## Page Scans:	www.ibiblio.org/apollo/ScansForConversion/Colossus237/
 ## Mod history:	2010-06-01 OH	Adapted from corresponding Colossus 249 file.
-##		2010-12-04 JL	Remove Colossus 249 header comments. Change 
+##		2010-12-04 JL	Remove Colossus 249 header comments. Change
 ##				to double-hash page numbers.
 ##		2011-01-27 JL	Minor fixes.
 ##		2016-08-14 RSB	Added SBANKs for addressing discrepancies.
@@ -50,7 +50,7 @@ NEWANGL		TC	INTPRET
 		AXC,1	CALL
 			MIS
 			DCMTOCDU	# PICK UP THE NEW CDU ANGLES FROM MATRIX
-		RTB	
+		RTB
 			V1STO2S
 		STORE	NCDU		# NEW CDU ANGLES
 		BONCLR	EXIT
@@ -119,6 +119,9 @@ MANUSTAT	EXIT			# INITIALIZATION ROUTINE
 		DCA	TIME2
 		DAS	TM		# TM+T0    MANEUVER COMPLETION TIME
 		EXTEND
+		DCA TM
+		DXCH MNVENDT
+		EXTEND
 ## Page 407
 		DCS	ONESEC
 		DAS	TM		# (TM+T0)-1
@@ -182,7 +185,7 @@ UPDTCALL	CAF	PRIO26		# CALL FOR UPDATE
 MANUSTOP	TC	STOPYZ
 		TC	LOADYZ
 
-ENDROLL		CA	CPHI	
+ENDROLL		CA	CPHI
 		TS	CDUXD		# SET CDUXD TO THE COMMANDED OUTER GIMBAL
 		TC	STOPRATE
 ENDMANU		CA	ATTPRIO		# RESTORE USERS PRIORITY
@@ -201,7 +204,7 @@ STOPRATE	CAF	ZERO
 		TS	WBODY		# RATE
 		TS	WBODY +1
 		TS	BIAS		# BIAS
-		
+
 		CS	BIT15		# MAKE SURE HIGH RATE FLAG (BIT 15 OF
 		MASK	RCSFLAGS	# RCSFLAGS) IS RESET.
 		TS	RCSFLAGS

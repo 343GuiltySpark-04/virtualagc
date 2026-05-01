@@ -31,20 +31,7 @@
 # 		2019-07-27 MAS	Added a check step against the bugger words
 #				specified in NASA drawing 2021151B.
 
-BASENAME=Colossus237
-
-EXTRA_TARGETS=diffColossus237sums
-
+BASENAME=Colossus237_MNVRT
+EXTRA_YAYUL_ARGS=--parity
+NO_BINSOURCE=yes
 include ../Makefile.inc
-
-${BASENAME}.binsource: ${BASENAME}.binsource2.txt
-	../Tools/listing2binsource ${VERBOSE} $^ $@
-
-clean: clean-binsource
-
-clean-binsource:
-	rm -f $(BASENAME).binsource
-
-.PHONY: diffColossus237sums
-diffColossus237sums:
-	../Tools/check_buggers.py Colossus237.bin Colossus237.buggers

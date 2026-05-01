@@ -10,7 +10,7 @@
 ## Website:	www.ibiblio.org/apollo/index.html
 ## Page Scans:	www.ibiblio.org/apollo/ScansForConversion/Artemis072/
 ## Mod history:	2009-08-08 JL	Adapted from corresponding Comanche 055 file.
-## 		2009-09-04 JL	Fix page number. VC/O should be an ECADR. 
+## 		2009-09-04 JL	Fix page number. VC/O should be an ECADR.
 ##				Fix some ECADRs that should have been OCTs.
 ##		2009-09-26 JL	Move line comments to same column as all other modules.
 ##		2010-01-31 JL	Fixed build errors.
@@ -202,7 +202,7 @@ NNADTAB		OCT	00000		# 00 	NOT IN USE
 					#	   (USED WITH PLEASE PERFORM ONLY)
 		ECADR	N26/PRI		# 26	PRIO/DELAY, ADRES, BBCON
 		ECADR	SMODE		# 27	SELF TEST ON/OFF SWITCH
-		OCT	0		# 28	SPARE
+		OCT	0		# 28	MNVR END TIME
 ## Page 284
 		ECADR	DSPTEM1		# 29	XSM LAUNCH AZIMUTH
 		ECADR	DSPTEM1		# 30	TARGET CODES
@@ -389,7 +389,7 @@ NNTYPTAB	OCT	00000		# 00 		NOT IN USE
 		OCT	04140		# 25	3COMP 	WHOLE
 		OCT	04000		# 26	3COMP 	OCTAL ONLY
 		OCT	00140		# 27	1COMP 	WHOLE
-		OCT	0		# 28		SPARE
+		OCT	24400		# 28		SPARE
 		OCT	20102		# 29	1COMP 	CDU DEG (DEC ONLY)
 		OCT	04140		# 30	3COMP 	WHOLE
 		OCT	24400		# 31	3COMP 	HMS (DEC ONLY)
